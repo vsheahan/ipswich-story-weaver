@@ -148,21 +148,34 @@ class NewsService:
             if creator:
                 author = creator.get_text(strip=True)
 
-            # Get published date (convert to naive UTC datetime for database)
+            # Get published date from URL (more reliable than RSS pubDate)
+            # URL format: https://thelocalnews.news/YYYY/MM/DD/article-slug/
             published_at = None
-            pub_date = item.find("pubDate")
-            if pub_date:
+            article_date = None
+            url_date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', link)
+            if url_date_match:
                 try:
-                    dt = parsedate_to_datetime(pub_date.get_text(strip=True))
-                    # Convert to naive datetime (remove timezone info)
-                    published_at = dt.replace(tzinfo=None)
+                    year, month, day = map(int, url_date_match.groups())
+                    article_date = date(year, month, day)
+                    published_at = datetime(year, month, day, 12, 0, 0)  # Noon on that day
                 except Exception:
                     pass
 
-            # Only include articles from today
+            # Fallback to RSS pubDate if URL parsing failed
+            if published_at is None:
+                pub_date = item.find("pubDate")
+                if pub_date:
+                    try:
+                        dt = parsedate_to_datetime(pub_date.get_text(strip=True))
+                        published_at = dt.replace(tzinfo=None)
+                        article_date = published_at.date()
+                    except Exception:
+                        pass
+
+            # Only include articles from today (based on actual article date, not RSS timestamp)
             today = date.today()
-            if published_at is None or published_at.date() != today:
-                logger.debug(f"Skipping article not from today: {title[:50]}")
+            if article_date is None or article_date != today:
+                logger.debug(f"Skipping article not from today ({article_date}): {title[:50]}")
                 continue
 
             articles.append({
@@ -197,6 +210,22 @@ class NewsService:
         )
         return list(result.scalars().all())
 
+    def _get_article_date_from_url(self, url: str) -> Optional[date]:
+        """Extract the actual publication date from the article URL.
+
+        URL format: https://thelocalnews.news/YYYY/MM/DD/article-slug/
+        """
+        if not url:
+            return None
+        match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
+        if match:
+            try:
+                year, month, day = map(int, match.groups())
+                return date(year, month, day)
+            except Exception:
+                pass
+        return None
+
     async def get_news_for_date(self, target_date: date, limit: int = 5) -> list[NewsItem]:
         """Get news items for a specific date.
 
@@ -205,18 +234,27 @@ class NewsService:
             limit: Maximum number of items to return.
 
         Returns:
-            List of NewsItem objects for that date.
+            List of NewsItem objects for that date, filtered by actual article URL date.
         """
+        # Fetch recent items (wider window to account for RSS timestamp issues)
+        # Then filter by actual article date from URL
         result = await self.db.execute(
             select(NewsItem)
-            .where(NewsItem.published_at >= datetime.combine(target_date, datetime.min.time()))
-            .where(NewsItem.published_at < datetime.combine(target_date, datetime.max.time()))
-            .order_by(
-                desc(NewsItem.published_at),
-            )
-            .limit(limit)
+            .order_by(desc(NewsItem.published_at))
+            .limit(50)  # Get more items to filter from
         )
-        return list(result.scalars().all())
+        all_items = list(result.scalars().all())
+
+        # Filter by actual article date from URL
+        matching_items = []
+        for item in all_items:
+            article_date = self._get_article_date_from_url(item.article_url)
+            if article_date == target_date:
+                matching_items.append(item)
+                if len(matching_items) >= limit:
+                    break
+
+        return matching_items
 
     async def get_news_items_by_ids(self, ids: list[int]) -> list[NewsItem]:
         """Fetch specific news items by their IDs."""

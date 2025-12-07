@@ -17,7 +17,7 @@ export default function Layout() {
         {/* Background image with overlay */}
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: 'url(/marsh.png)' }}
+          style={{ backgroundImage: 'url(/banner.jpg)' }}
         />
         <div className="absolute inset-0 bg-white/75" />
 

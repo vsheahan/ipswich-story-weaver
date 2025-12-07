@@ -100,6 +100,21 @@ class ContextBuilder:
             for item in news_items
         ]
 
+    async def _get_news_context_by_ids(self, news_ids: list[int]) -> list[NewsContext]:
+        """Get news items by their IDs for preserving context during regeneration."""
+        news_items = await self.news_service.get_news_items_by_ids(news_ids)
+
+        return [
+            NewsContext(
+                id=item.id,
+                headline=item.headline,
+                summary=item.summary,
+                article_url=item.article_url,
+                category_label=item.category_label,
+            )
+            for item in news_items
+        ]
+
     async def get_news_items_by_ids(self, ids: list[int]) -> list[NewsItemBrief]:
         """Fetch specific news items by their IDs for response building."""
         if not ids:

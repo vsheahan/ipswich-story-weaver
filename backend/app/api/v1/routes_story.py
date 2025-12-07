@@ -241,7 +241,17 @@ async def generate_today_story(
 
     # Build context and generate story
     context_builder = ContextBuilder(db)
-    context = await context_builder.build_context(today)
+
+    # When regenerating an existing story, preserve its news items
+    # (news from past dates won't be found by date-based lookup)
+    if existing and force and existing.used_news_item_ids:
+        # Build context without news, then add preserved news
+        context = await context_builder.build_context(today, include_news=False)
+        # Fetch the original news items
+        preserved_news = await context_builder._get_news_context_by_ids(existing.used_news_item_ids)
+        context.news_items = preserved_news
+    else:
+        context = await context_builder.build_context(today)
 
     # Get the appropriate story generator (LLM or template-based)
     generator = get_story_generator()

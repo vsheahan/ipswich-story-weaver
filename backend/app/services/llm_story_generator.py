@@ -6,6 +6,7 @@ in the tradition of classic New England nature writing.
 """
 
 import logging
+import re
 from typing import Protocol, Tuple, List, Optional
 import os
 from dataclasses import dataclass
@@ -37,7 +38,8 @@ class RecentStory:
     """Summary of a recent story for anti-repetition."""
     date: str
     title: str
-    first_sentence: str
+    opening_lines: str  # First 2-3 sentences
+    key_phrases: List[str]  # Distinctive phrases to avoid
 
 
 @dataclass
@@ -55,6 +57,7 @@ class StoryInput:
     tide_height: Optional[float]
     news_items: List[NewsItem]
     recent_stories: List[RecentStory] = None
+    banned_phrases: List[str] = None  # Explicit phrases to never use
 
 
 # =============================================================================
@@ -103,27 +106,50 @@ You write as if the land itself is observing the news alongside the people of Ip
 
 Your stories should feel like they could have been written while walking the Ipswich riverbanks, Crane Beach dunes, Appleton Farms grasslands, or Willowdale forests at dawn.
 
-CRITICAL - AVOID REPETITION:
-- Each day's story must feel fresh and distinct from previous days
+CRITICAL - AVOID REPETITION (THIS IS EXTREMELY IMPORTANT):
+- You will be given a list of BANNED PHRASES from recent stories. You MUST NOT use any of these phrases or close variations of them. This is a hard rule.
+- Each day's story must feel completely fresh and distinct from previous days
 - Vary your anchor locations: if yesterday featured High Street, today choose a different place (the Riverwalk, Crane Beach, Appleton Farms, Castle Hill, the Great Marsh, Willowdale, Town Hill, etc.)
-- Vary your opening imagery and metaphors - never reuse phrases like "houses settling into foundations" or similar constructions from recent stories
+- Vary your opening imagery and metaphors completely - no similar constructions to recent stories
 - Vary the natural elements you emphasize (birds, trees, light, water, wind, etc.)
-- You will be given summaries of recent stories to help you avoid repetition
+- If recent stories mentioned cardinals, DO NOT mention cardinals. If they mentioned frost patterns, DO NOT mention frost patterns. Find completely different imagery.
 
 CRITICAL - VARY YOUR OPENING LINES:
 Never start consecutive stories with similar patterns. Avoid these common traps:
 - Starting with "The cold..." or any weather observation as the first words
 - Starting with "The morning..." or time-of-day references
 - Starting with "Along the..." or location references
-Instead, vary your entry points: start with an action, a sensory detail, a historical echo, a sound, a question, a person moving through space, light falling on something specific. Each opening should surprise.
+- Starting with an animal call or bird sound (especially if recent stories did)
+- Starting with weather phenomena like frost, ice, or snow (especially if recent stories did)
+Instead, vary your entry points: start with an action, a human figure, a historical echo, a philosophical observation, light falling on architecture, a boat on the water, a conversation overheard. Each opening should be genuinely different from the last five stories.
 
-CRITICAL - NO PERSONAL NAMES:
-NEVER use any person's name from news stories. This is an absolute rule with no exceptions.
-- Instead of "John Smith retires" write "a longtime educator retires"
-- Instead of "Mary Jones announced" write "a town official announced"
-- Instead of "Eric Oxford walks" write "the outgoing director walks"
-- Use role descriptions: "a local fisherman", "the school principal", "a resident", "a town planner"
-The stories should feel universal, not tied to specific individuals."""
+CRITICAL - VARY TITLE STRUCTURE (MANDATORY):
+STOP using "The [Noun] of [Noun]" pattern. This pattern is BANNED. Recent titles like "The Geometry of Safety", "The Weight of Return", "The Architecture of Quiet" all use this same tired structure.
+
+You MUST use a completely different title structure. Choose from:
+- Two-word evocative: "Cold Comfort", "December Light", "Low Tide", "Salt Wind"
+- Gerund phrases: "Walking Home", "Crossing Over", "Waiting for Snow"
+- Prepositional: "Before Dawn", "After the Storm", "Along the River"
+- Place + Time: "Crane Beach Morning", "High Street Dusk"
+- Simple nouns: "Stillness", "Homecoming", "Tidewater"
+- Fragments: "What Remains", "Almost Winter", "Not Yet Spring"
+
+DO NOT start the title with "The" followed by an abstract noun. This is a hard requirement.
+
+CRITICAL - NO PERSONAL NAMES (ABSOLUTE RULE):
+NEVER use any person's name from news stories. This includes:
+- First names, last names, or full names
+- Titles with names (Rev. John Smith, Dr. Jane Doe, Officer Mike Brown)
+- ANY identifying name whatsoever
+
+Instead, ALWAYS use generic role descriptions:
+- "a longtime educator" not "John Smith"
+- "a town official" not "Mary Jones"
+- "the minister" or "the pastor" not "Rev. Adam Randazzo"
+- "a local business owner" not "Sarah Thompson"
+- "the fire chief" not "Chief Williams"
+
+This is a HARD RULE with zero exceptions. Scan your output before finishing - if ANY proper name appears that came from a news story, you must remove it and replace with a role description."""
 
 
 # =============================================================================
@@ -153,6 +179,13 @@ USER_PROMPT_TEMPLATE = """Write today's chapter for Ipswich, Massachusetts.
 
 ## Recent Stories (AVOID repeating these themes, locations, and phrases)
 {recent_stories}
+
+## BANNED PHRASES (DO NOT USE these or similar variations - this is mandatory)
+{banned_phrases}
+
+## BANNED TITLE PATTERNS (DO NOT use "The [Noun] of [Noun]" structure)
+Recent titles used this pattern - you must use a DIFFERENT structure:
+{recent_titles}
 
 ---
 
@@ -250,10 +283,22 @@ class LLMStoryGenerator:
         if story_input.recent_stories:
             recent_lines = []
             for story in story_input.recent_stories:
-                recent_lines.append(f"- **{story.date}** \"{story.title}\": {story.first_sentence}")
+                recent_lines.append(f"- **{story.date}** \"{story.title}\": {story.opening_lines}")
             recent_stories_section = "\n".join(recent_lines)
         else:
             recent_stories_section = "(No recent stories - this is the first chapter)"
+
+        # Format banned phrases section
+        if story_input.banned_phrases:
+            banned_phrases_section = "\n".join(f"- \"{phrase}\"" for phrase in story_input.banned_phrases)
+        else:
+            banned_phrases_section = "(No banned phrases yet)"
+
+        # Format recent titles section
+        if story_input.recent_stories:
+            recent_titles_section = "\n".join(f"- \"{story.title}\"" for story in story_input.recent_stories)
+        else:
+            recent_titles_section = "(No recent titles)"
 
         # Build the user prompt
         user_prompt = USER_PROMPT_TEMPLATE.format(
@@ -268,6 +313,8 @@ class LLMStoryGenerator:
             news_section=news_section,
             knowledge_context=knowledge_context,
             recent_stories=recent_stories_section,
+            banned_phrases=banned_phrases_section,
+            recent_titles=recent_titles_section,
         )
 
         # Call the API
@@ -334,6 +381,57 @@ class LLMStoryGenerator:
         return title, body
 
 
+def extract_key_phrases(text: str) -> List[str]:
+    """
+    Extract distinctive opening phrases and imagery from story text.
+    These will be explicitly banned in future stories.
+    """
+    if not text:
+        return []
+
+    phrases = []
+
+    # Get the first 2-3 sentences for opening pattern detection
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+
+    # Extract distinctive opening patterns (first 6-8 words of each early sentence)
+    for sentence in sentences[:3]:
+        words = sentence.split()
+        if len(words) >= 4:
+            # Get opening phrase (first 4-6 words)
+            opening = ' '.join(words[:min(6, len(words))])
+            # Clean up and add if substantive
+            opening = opening.strip('.,;:')
+            if len(opening) > 15:  # Skip very short phrases
+                phrases.append(opening)
+
+    # Look for distinctive imagery patterns throughout the text
+    imagery_patterns = [
+        r"[A-Z][a-z]+'s?\s+(?:sharp\s+)?(?:call|cry|song)\s+\w+",  # "A cardinal's sharp call..."
+        r"[Ff]rost\s+(?:etches?|traces?|paints?|covers?)\s+\w+",  # "Frost etches..."
+        r"[Ii]ce\s+(?:forms?|edges?|crystals?)\s+\w+",  # "Ice forms..."
+        r"[Ss]now\s+(?:falls?|blankets?|covers?|softens?)\s+\w+",  # "Snow falls..."
+        r"[Ww]ind\s+(?:carries?|brings?|whispers?)\s+\w+",  # "Wind carries..."
+        r"[Ll]ight\s+(?:falls?|slants?|filters?)\s+\w+",  # "Light falls..."
+        r"[Ss]hadows?\s+(?:stretch|fall|lengthen)\s+\w+",  # "Shadows stretch..."
+    ]
+
+    for pattern in imagery_patterns:
+        matches = re.findall(pattern, text)
+        phrases.extend(matches[:2])  # Max 2 matches per pattern
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_phrases = []
+    for p in phrases:
+        p_lower = p.lower()
+        if p_lower not in seen:
+            seen.add(p_lower)
+            unique_phrases.append(p)
+
+    return unique_phrases[:10]  # Max 10 phrases per story
+
+
 class LLMStoryGeneratorWithFallback:
     """
     Story generator that tries LLM first, falls back to template-based.
@@ -376,15 +474,27 @@ class LLMStoryGeneratorWithFallback:
             try:
                 # Build recent stories list for anti-repetition
                 recent_stories = []
+                all_banned_phrases = []
+
                 if recent_chapters:
                     for ch in recent_chapters[:5]:  # Last 5 stories
-                        # Get first sentence of the body
-                        first_sentence = ch.body.split('.')[0] + '.' if ch.body else ""
+                        # Get first 2-3 sentences for opening context
+                        sentences = re.split(r'(?<=[.!?])\s+', ch.body.strip()) if ch.body else []
+                        opening_lines = ' '.join(sentences[:3])[:300] if sentences else ""
+
+                        # Extract key phrases from full body
+                        key_phrases = extract_key_phrases(ch.body) if ch.body else []
+                        all_banned_phrases.extend(key_phrases)
+
                         recent_stories.append(RecentStory(
                             date=str(ch.chapter_date),
                             title=ch.title,
-                            first_sentence=first_sentence[:150],
+                            opening_lines=opening_lines,
+                            key_phrases=key_phrases,
                         ))
+
+                # Deduplicate banned phrases
+                unique_banned = list(dict.fromkeys(all_banned_phrases))
 
                 # Convert context to StoryInput
                 story_input = StoryInput(
@@ -403,6 +513,7 @@ class LLMStoryGeneratorWithFallback:
                         for n in (context.news_items or [])
                     ],
                     recent_stories=recent_stories,
+                    banned_phrases=unique_banned,
                 )
 
                 # Get eBird API key from environment

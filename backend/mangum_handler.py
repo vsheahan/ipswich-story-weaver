@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import date
 from mangum import Mangum
 from app.main import app
 
@@ -12,18 +13,51 @@ _mangum_handler = Mangum(app, lifespan="off")
 async def generate_daily_story():
     """Generate the daily story - called by scheduled event."""
     from app.core.database import async_session_maker
-    from app.services.story_service import StoryService
+    from app.core.config import get_settings
     from app.services.news_service import NewsService
+    from app.services.context_builder import ContextBuilder
+    from app.services.story_engine import StoryEngine, TemplateStoryGenerator
+    from app.services.llm_story_generator import LLMStoryGeneratorWithFallback
+
+    settings = get_settings()
 
     async with async_session_maker() as session:
         # First refresh news
         news_service = NewsService(session)
-        await news_service.refresh_news()
+        await news_service.fetch_and_update_ipswich_news()
 
-        # Then generate story
-        story_service = StoryService(session)
-        result = await story_service.generate_daily_story()
-        return result
+        # Build context for today
+        today = date.today()
+        context_builder = ContextBuilder(session)
+        context = await context_builder.build_context(today)
+
+        # Get the appropriate story generator (LLM or template-based)
+        fallback = TemplateStoryGenerator()
+        if settings.use_llm_for_stories and settings.anthropic_api_key:
+            generator = LLMStoryGeneratorWithFallback(
+                api_key=settings.anthropic_api_key,
+                fallback_generator=fallback,
+                model=settings.llm_model,
+            )
+        else:
+            generator = fallback
+
+        # Generate story
+        engine = StoryEngine(session, generator=generator)
+        chapter = await engine.generate_story_for_date(
+            context=context,
+            target_date=today,
+            force_regenerate=False,
+        )
+
+        await session.commit()
+
+        return {
+            "chapter": {
+                "title": chapter.title,
+                "date": str(chapter.chapter_date),
+            }
+        }
 
 
 def handler(event, context):
