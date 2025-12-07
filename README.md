@@ -14,6 +14,16 @@ The Ipswich Story Weaver is a contemplative, civic narrative installation that m
 
 **Important:** This is a read-only public application. There is no user-generated content. All public endpoints are read-only. News content is limited to headlines, short summaries, and links back to the original source.
 
+## Slow AI
+
+This project is an experiment in "Slow AI"—using technology to deepen our connection to place rather than simply speeding up our lives.
+
+In a world where AI is typically deployed to accelerate workflows and maximize productivity, Ipswich Story Weaver takes a different approach. Instead of making things faster, it encourages slowing down. Instead of abstracting away from the physical world, it grounds us in a specific place: the salt marshes, tidal rhythms, and three centuries of history that make Ipswich what it is.
+
+The national news often feels engineered to make us feel helpless about events beyond our control. Here, local news is woven into the seasons and the land—viewed through the rhythm of the tides and the long memory of the town. The result is a perspective that is quieter and more enduring. Not an escape from reality, but a gentler way of witnessing it.
+
+This is a sophisticated technical implementation of a very humanistic idea.
+
 ## Narrative Style
 
 Stories are written in a **contemplative New England literary style** inspired by:
