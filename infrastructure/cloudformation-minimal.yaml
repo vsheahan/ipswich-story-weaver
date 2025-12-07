@@ -1,0 +1,425 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Ipswich Story Weaver - Absolute Minimum Cost (~$13-18/month)'
+
+# =============================================================================
+# COST BREAKDOWN (Estimated Monthly)
+# =============================================================================
+# RDS db.t4g.micro (single-AZ):     ~$12-13
+# Route 53 Hosted Zone:             ~$0.50
+# S3 (frontend, <1GB):              ~$0.03
+# CloudFront (low traffic):         ~$0-1
+# Lambda (free tier: 1M req/mo):    ~$0
+# API Gateway (free tier: 1M/mo):   ~$0
+# Data Transfer:                    ~$0-2
+# ---------------------------------------------
+# TOTAL:                            ~$13-18/month
+# Domain Registration (.com):       ~$13/year (register in Route 53 console)
+# =============================================================================
+#
+# SECURITY NOTE: RDS is publicly accessible to minimize costs (no NAT Gateway).
+# Protected by security group + strong password. For production, consider
+# adding NAT Gateway (~$32/month extra) or use VPC endpoints.
+# =============================================================================
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: Your domain (e.g., ipswichstories.com). Leave blank to use CloudFront URL.
+    Default: ''
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Database password (min 16 characters)
+
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+
+  WeatherApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+
+  EBirdApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: eBird API key for bird sightings (get free at ebird.org/api/keygen)
+
+Conditions:
+  HasDomain: !Not [!Equals [!Ref DomainName, '']]
+
+Resources:
+
+  # ===========================================================================
+  # MINIMAL VPC (no NAT Gateway = saves $32/month)
+  # ===========================================================================
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-vpc'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  # ===========================================================================
+  # DATABASE - RDS PostgreSQL (smallest, publicly accessible to avoid NAT)
+  # ===========================================================================
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for RDS
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Security Group - Lambda IPs only
+      VpcId: !Ref VPC
+      # Lambda without VPC uses AWS public IPs - we allow all but rely on password
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+          Description: PostgreSQL (protected by strong password)
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub '${AWS::StackName}-db'
+      DBInstanceClass: db.t4g.micro          # ~$12/month
+      Engine: postgres
+      EngineVersion: '15'
+      MasterUsername: ipswich_admin
+      MasterUserPassword: !Ref DBPassword
+      DBName: ipswich_stories
+      AllocatedStorage: 20
+      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: true               # Required without NAT
+      BackupRetentionPeriod: 1
+      MultiAZ: false
+      DeletionProtection: false
+      EnablePerformanceInsights: false
+
+  # ===========================================================================
+  # LAMBDA (Free tier: 1M requests, 400K GB-seconds/month)
+  # ===========================================================================
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  BackendLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-api'
+      Runtime: python3.11
+      Handler: mangum_handler.handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256                        # Minimum practical for FastAPI
+      Environment:
+        Variables:
+          DATABASE_URL: !Sub 'postgresql+asyncpg://ipswich_admin:${DBPassword}@${Database.Endpoint.Address}:5432/ipswich_stories'
+          DATABASE_URL_SYNC: !Sub 'postgresql://ipswich_admin:${DBPassword}@${Database.Endpoint.Address}:5432/ipswich_stories'
+          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+          WEATHER_API_KEY: !Ref WeatherApiKey
+          EBIRD_API_KEY: !Ref EBirdApiKey
+          ENVIRONMENT: production
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {
+                  "statusCode": 200,
+                  "headers": {"Content-Type": "application/json"},
+                  "body": '{"message": "Deploy your code using: aws lambda update-function-code"}'
+              }
+
+  LambdaUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !Ref BackendLambda
+      Cors:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - '*'
+        AllowHeaders:
+          - '*'
+
+  LambdaUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BackendLambda
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+  # ===========================================================================
+  # DAILY STORY SCHEDULER (EventBridge - free)
+  # ===========================================================================
+
+  DailyStoryRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-daily-story'
+      Description: Generate daily story at 6 AM ET
+      ScheduleExpression: 'cron(0 11 * * ? *)'  # 11 AM UTC = 6 AM ET
+      State: ENABLED
+      Targets:
+        - Id: GenerateStoryTarget
+          Arn: !GetAtt BackendLambda.Arn
+          Input: '{"source": "scheduled", "action": "generate-story"}'
+
+  DailyStoryPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BackendLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DailyStoryRule.Arn
+
+  # ===========================================================================
+  # FRONTEND (S3 + CloudFront)
+  # ===========================================================================
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-frontend-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+        HttpVersion: http2
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !Ref CloudFrontOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+          - Id: LambdaOrigin
+            DomainName: !Select [2, !Split ['/', !GetAtt LambdaUrl.FunctionUrl]]
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CacheBehaviors:
+          - PathPattern: '/api/*'
+            TargetOriginId: LambdaOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          - PathPattern: '/healthz*'
+            TargetOriginId: LambdaOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        Aliases: !If
+          - HasDomain
+          - [!Ref DomainName, !Sub 'www.${DomainName}']
+          - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - HasDomain
+          - AcmCertificateArn: !Ref Certificate
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+
+  # ===========================================================================
+  # DNS + SSL (only if domain provided)
+  # ===========================================================================
+
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Condition: HasDomain
+    Properties:
+      Name: !Ref DomainName
+
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: HasDomain
+    Properties:
+      DomainName: !Ref DomainName
+      SubjectAlternativeNames:
+        - !Sub 'www.${DomainName}'
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZone
+
+  DNSRecordRoot:
+    Type: AWS::Route53::RecordSet
+    Condition: HasDomain
+    Properties:
+      HostedZoneId: !Ref HostedZone
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  DNSRecordWWW:
+    Type: AWS::Route53::RecordSet
+    Condition: HasDomain
+    Properties:
+      HostedZoneId: !Ref HostedZone
+      Name: !Sub 'www.${DomainName}'
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+Outputs:
+  WebsiteURL:
+    Description: Your website URL
+    Value: !If
+      - HasDomain
+      - !Sub 'https://${DomainName}'
+      - !Sub 'https://${CloudFrontDistribution.DomainName}'
+
+  ApiURL:
+    Description: Lambda Function URL (for testing)
+    Value: !GetAtt LambdaUrl.FunctionUrl
+
+  FrontendBucket:
+    Description: S3 bucket - deploy frontend with 'aws s3 sync dist/ s3://BUCKET'
+    Value: !Ref FrontendBucket
+
+  LambdaFunction:
+    Description: Lambda function - deploy backend with 'aws lambda update-function-code'
+    Value: !Ref BackendLambda
+
+  DatabaseEndpoint:
+    Description: RDS endpoint for migrations
+    Value: !GetAtt Database.Endpoint.Address
+
+  NameServers:
+    Condition: HasDomain
+    Description: Point your domain registrar to these name servers
+    Value: !Join [', ', !GetAtt HostedZone.NameServers]
+
+  MonthlyCostEstimate:
+    Description: Estimated monthly cost
+    Value: '$13-18/month + $13/year for domain'
