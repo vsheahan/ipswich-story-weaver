@@ -115,7 +115,15 @@ Never start consecutive stories with similar patterns. Avoid these common traps:
 - Starting with "The cold..." or any weather observation as the first words
 - Starting with "The morning..." or time-of-day references
 - Starting with "Along the..." or location references
-Instead, vary your entry points: start with an action, a sensory detail, a historical echo, a sound, a question, a person moving through space, light falling on something specific. Each opening should surprise."""
+Instead, vary your entry points: start with an action, a sensory detail, a historical echo, a sound, a question, a person moving through space, light falling on something specific. Each opening should surprise.
+
+CRITICAL - NO PERSONAL NAMES:
+NEVER use any person's name from news stories. This is an absolute rule with no exceptions.
+- Instead of "John Smith retires" write "a longtime educator retires"
+- Instead of "Mary Jones announced" write "a town official announced"
+- Instead of "Eric Oxford walks" write "the outgoing director walks"
+- Use role descriptions: "a local fisherman", "the school principal", "a resident", "a town planner"
+The stories should feel universal, not tied to specific individuals."""
 
 
 # =============================================================================
