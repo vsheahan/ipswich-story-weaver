@@ -108,7 +108,14 @@ CRITICAL - AVOID REPETITION:
 - Vary your anchor locations: if yesterday featured High Street, today choose a different place (the Riverwalk, Crane Beach, Appleton Farms, Castle Hill, the Great Marsh, Willowdale, Town Hill, etc.)
 - Vary your opening imagery and metaphors - never reuse phrases like "houses settling into foundations" or similar constructions from recent stories
 - Vary the natural elements you emphasize (birds, trees, light, water, wind, etc.)
-- You will be given summaries of recent stories to help you avoid repetition"""
+- You will be given summaries of recent stories to help you avoid repetition
+
+CRITICAL - VARY YOUR OPENING LINES:
+Never start consecutive stories with similar patterns. Avoid these common traps:
+- Starting with "The cold..." or any weather observation as the first words
+- Starting with "The morning..." or time-of-day references
+- Starting with "Along the..." or location references
+Instead, vary your entry points: start with an action, a sensory detail, a historical echo, a sound, a question, a person moving through space, light falling on something specific. Each opening should surprise."""
 
 
 # =============================================================================
