@@ -90,6 +90,12 @@ export default function About() {
             feed of headlines.
           </p>
           <p>
+            This is an attempt at "Slow AI." Instead of trying to speed up a
+            workflow, it uses technology to encourage slowing down and appreciating
+            a specific sense of place. It's a sophisticated technical implementation
+            of a very humanistic idea.
+          </p>
+          <p>
             The national news can feel like noise — loud, fractured, designed to
             unsettle. Stories engineered to make us feel helpless and angry at
             people we'll never meet. I wanted to create something quieter, and I
