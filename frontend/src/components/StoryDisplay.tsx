@@ -54,12 +54,12 @@ export default function StoryDisplay({ chapter, showMeta = true }: StoryDisplayP
           </div>
 
           {/* News items that shaped this chapter */}
-          {chapter.news_items && chapter.news_items.length > 0 && (
-            <div className="mt-6">
-              <h4 className="text-sm font-sans font-medium text-gray-600 mb-3 flex items-center gap-2">
-                <NewspaperIcon />
-                News that shaped this chapter
-              </h4>
+          <div className="mt-6">
+            <h4 className="text-sm font-sans font-medium text-gray-600 mb-3 flex items-center gap-2">
+              <NewspaperIcon />
+              News that shaped this chapter
+            </h4>
+            {chapter.news_items && chapter.news_items.length > 0 ? (
               <div className="space-y-3">
                 {chapter.news_items.map((news: NewsItemBrief) => (
                   <div
@@ -84,8 +84,12 @@ export default function StoryDisplay({ chapter, showMeta = true }: StoryDisplayP
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-sm text-gray-500 italic pl-4 border-l-2 border-gray-200">
+                No local news stories for Ipswich, MA were published today.
+              </p>
+            )}
+          </div>
         </footer>
       )}
     </article>
