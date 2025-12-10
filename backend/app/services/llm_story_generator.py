@@ -22,6 +22,10 @@ from app.services.ipswich_knowledge import (
     HISTORICAL_FACTS,
 )
 from app.services.additional_sources import gather_additional_context
+from app.services.environmental.aggregator import (
+    gather_environmental_context,
+    format_environmental_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +165,8 @@ USER_PROMPT_TEMPLATE = """Write today's chapter for Ipswich, Massachusetts.
 ## Today's Date
 {day_of_week}, {month_name} {date}
 
+CRITICAL DATE ACCURACY: Today is {month_name} {date}. If you mention any month in your story, it MUST be {month_name}. Never write a different month like "October" when it is actually December. You may choose not to mention the month at all, but if you do reference a month, use only the correct one: {month_name}.
+
 ## Season
 {season}
 
@@ -170,6 +176,18 @@ USER_PROMPT_TEMPLATE = """Write today's chapter for Ipswich, Massachusetts.
 
 ## Tide
 {tide_state}{tide_height}
+
+## Ocean Conditions
+{ocean_conditions}
+
+## Air Quality & Atmosphere
+{atmosphere_conditions}
+
+## Land & Vegetation
+{land_conditions}
+
+## Tonight's Sky
+{astronomy_conditions}
 
 ## Local News to Weave In
 {news_section}
@@ -195,11 +213,13 @@ Write a short chapter (2-3 paragraphs, 200-350 words total) that:
 3. Connects the present moment to the deeper patterns of place - seasonal, ecological, historical
 4. Closes with a sense of continuity - the day passing into evening, the ongoing life of the town
 
-Respond with:
-TITLE: [A poetic but not flowery title, 3-8 words]
+Respond with EXACTLY this format:
+TITLE: [Your original poetic title here - DO NOT use the news headline as the title. Create your own evocative 2-5 word title like "December Light" or "Salt Wind Morning"]
 
 BODY:
-[The story text, with paragraphs separated by blank lines]"""
+[The story text, with paragraphs separated by blank lines]
+
+IMPORTANT: The title must be YOUR OWN creative title, NOT the news headline or any part of it."""
 
 
 class LLMStoryGenerator:
@@ -231,6 +251,7 @@ class LLMStoryGenerator:
         self,
         story_input: StoryInput,
         ebird_api_key: Optional[str] = None,
+        airnow_api_key: Optional[str] = None,
     ) -> Tuple[str, str]:
         """
         Generate a story chapter using the LLM.
@@ -238,6 +259,7 @@ class LLMStoryGenerator:
         Args:
             story_input: All the context for today's story
             ebird_api_key: Optional eBird API key for bird sightings
+            airnow_api_key: Optional EPA AirNow API key for air quality
 
         Returns:
             Tuple of (title, body)
@@ -252,6 +274,72 @@ class LLMStoryGenerator:
                 knowledge_context += "\n\n" + additional_context
         except Exception as e:
             logger.warning(f"Failed to gather additional context: {e}")
+
+        # Gather environmental context (ocean, atmosphere, land, astronomy)
+        ocean_conditions = ""
+        atmosphere_conditions = ""
+        land_conditions = ""
+        astronomy_conditions = ""
+
+        try:
+            env_context = await gather_environmental_context(
+                airnow_api_key=airnow_api_key,
+            )
+
+            # Format ocean conditions
+            ocean_parts = []
+            if env_context.waves and env_context.waves.significant_height_ft:
+                ocean_parts.append(f"- Waves: {env_context.waves.description}")
+            if env_context.sst and env_context.sst.temp_fahrenheit:
+                ocean_parts.append(f"- Sea temperature: {env_context.sst.description}")
+            if env_context.ocean_color and env_context.ocean_color.bloom_status != "normal":
+                ocean_parts.append(f"- Ocean color: {env_context.ocean_color.description}")
+            if env_context.hab and env_context.hab.status != "none":
+                ocean_parts.append(f"- HAB status: {env_context.hab.description}")
+            ocean_conditions = "\n".join(ocean_parts) if ocean_parts else "(No ocean data available)"
+
+            # Format atmosphere conditions
+            atmo_parts = []
+            if env_context.air_quality and env_context.air_quality.overall_aqi:
+                atmo_parts.append(f"- Air quality: {env_context.air_quality.description}")
+                if env_context.air_quality.health_message:
+                    atmo_parts.append(f"  {env_context.air_quality.health_message}")
+            if env_context.smoke and env_context.smoke.present:
+                atmo_parts.append(f"- Smoke: {env_context.smoke.description}")
+            atmosphere_conditions = "\n".join(atmo_parts) if atmo_parts else "(Air quality good)"
+
+            # Format land conditions
+            land_parts = []
+            if env_context.vegetation:
+                land_parts.append(f"- Vegetation: {env_context.vegetation.status} - {env_context.vegetation.seasonal_note or ''}")
+            if env_context.snow and env_context.snow.coverage != "none":
+                land_parts.append(f"- Snow: {env_context.snow.description}")
+            if env_context.drought and env_context.drought.severity != "none":
+                land_parts.append(f"- Drought: {env_context.drought.description}")
+            if env_context.coastal_erosion and env_context.coastal_erosion.high_risk_areas:
+                land_parts.append(f"- Coastal change: {env_context.coastal_erosion.recent_changes}")
+            land_conditions = "\n".join(land_parts) if land_parts else "(Conditions normal)"
+
+            # Format astronomy conditions
+            astro_parts = []
+            if env_context.planets and env_context.planets.visible_planets:
+                if env_context.planets.evening_planets:
+                    astro_parts.append(f"- Evening sky: {', '.join(env_context.planets.evening_planets)} visible")
+                if env_context.planets.morning_planets:
+                    astro_parts.append(f"- Before dawn: {', '.join(env_context.planets.morning_planets)} visible")
+            if env_context.meteor_shower and env_context.meteor_shower.active_shower:
+                if env_context.meteor_shower.peak_tonight:
+                    astro_parts.append(f"- **{env_context.meteor_shower.active_shower} meteor shower peaks tonight!** ({env_context.meteor_shower.expected_rate})")
+                else:
+                    astro_parts.append(f"- {env_context.meteor_shower.active_shower} meteor shower active ({env_context.meteor_shower.expected_rate})")
+            astronomy_conditions = "\n".join(astro_parts) if astro_parts else "(Standard night sky)"
+
+        except Exception as e:
+            logger.warning(f"Failed to gather environmental context: {e}")
+            ocean_conditions = "(Data unavailable)"
+            atmosphere_conditions = "(Data unavailable)"
+            land_conditions = "(Data unavailable)"
+            astronomy_conditions = "(Data unavailable)"
 
         # Format temperature info
         temp_info = ""
@@ -310,6 +398,10 @@ class LLMStoryGenerator:
             temp_info=temp_info,
             tide_state=story_input.tide_state,
             tide_height=tide_height,
+            ocean_conditions=ocean_conditions,
+            atmosphere_conditions=atmosphere_conditions,
+            land_conditions=land_conditions,
+            astronomy_conditions=astronomy_conditions,
             news_section=news_section,
             knowledge_context=knowledge_context,
             recent_stories=recent_stories_section,
@@ -345,6 +437,10 @@ class LLMStoryGenerator:
                 # Parse title and body
                 return self._parse_response(content)
 
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error calling LLM API: {e}")
+            logger.error(f"Response body: {e.response.text}")
+            raise
         except httpx.HTTPError as e:
             logger.error(f"HTTP error calling LLM API: {e}")
             raise
@@ -354,6 +450,7 @@ class LLMStoryGenerator:
 
     def _parse_response(self, content: str) -> Tuple[str, str]:
         """Parse the LLM response into title and body."""
+        logger.info(f"Parsing LLM response, first 500 chars: {content[:500]}")
         lines = content.strip().split("\n")
 
         title = "A Day in Ipswich"
@@ -361,9 +458,13 @@ class LLMStoryGenerator:
         in_body = False
 
         for line in lines:
-            if line.startswith("TITLE:"):
-                title = line.replace("TITLE:", "").strip()
-            elif line.startswith("BODY:"):
+            # Handle variations: "TITLE:", "Title:", "**TITLE:**", etc.
+            line_upper = line.upper().strip()
+            if line_upper.startswith("TITLE:") or line_upper.startswith("**TITLE"):
+                # Extract title, removing markdown and label
+                title = line.split(":", 1)[-1].strip().strip("*").strip()
+                logger.info(f"Parsed title: {title}")
+            elif line_upper.startswith("BODY:") or line_upper.startswith("**BODY"):
                 in_body = True
             elif in_body:
                 body_lines.append(line)
@@ -374,10 +475,11 @@ class LLMStoryGenerator:
         if not body:
             # Try to use the whole content as body
             body = content.strip()
-            if body.startswith("TITLE:"):
+            if body.upper().startswith("TITLE:"):
                 # Remove title line
                 body = "\n".join(body.split("\n")[1:]).strip()
 
+        logger.info(f"Final title: {title}, body length: {len(body)}")
         return title, body
 
 
@@ -516,18 +618,20 @@ class LLMStoryGeneratorWithFallback:
                     banned_phrases=unique_banned,
                 )
 
-                # Get eBird API key from environment
+                # Get API keys from environment
                 ebird_api_key = os.environ.get("EBIRD_API_KEY")
+                airnow_api_key = os.environ.get("AIRNOW_API_KEY")
 
                 title, body = await self.llm_generator.generate(
                     story_input,
                     ebird_api_key=ebird_api_key,
+                    airnow_api_key=airnow_api_key,
                 )
                 logger.info("Story generated successfully with LLM")
                 return title, body
 
             except Exception as e:
-                logger.warning(f"LLM generation failed, using fallback: {e}")
+                logger.error(f"LLM generation failed, using fallback: {e}", exc_info=True)
 
         # Use fallback generator
         logger.info("Using template-based fallback generator")

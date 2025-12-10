@@ -21,7 +21,6 @@ export default function Home() {
   const {
     data: context,
     loading: contextLoading,
-    error: contextError,
   } = useApi<StoryContext>(
     useCallback(() => storyApi.getTodayContext(), [])
   );
@@ -41,8 +40,9 @@ export default function Home() {
     }
   };
 
-  const isLoading = chapterLoading || contextLoading;
-  const error = chapterError || contextError;
+  // Show story as soon as it's ready, don't wait for context
+  const isLoading = chapterLoading;
+  const error = chapterError;
 
   if (isLoading) {
     return (
@@ -114,29 +114,42 @@ export default function Home() {
         </div>
 
         {/* Sidebar with Context */}
-        {context && (
-          <div className="lg:sticky lg:top-8 self-start">
-            <ContextSidebar context={context} />
-
-            {/* Dev mode regenerate button */}
-            {DEV_MODE && chapter && (
-              <div className="mt-6">
-                <button
-                  onClick={async () => {
-                    const result = await generateStory(true);
-                    if (result?.success) {
-                      refetchChapter();
-                    }
-                  }}
-                  disabled={generating}
-                  className="btn btn-secondary w-full text-xs"
-                >
-                  {generating ? 'Regenerating...' : '🔄 Regenerate (Dev)'}
-                </button>
+        <div className="lg:sticky lg:top-8 self-start">
+          {contextLoading ? (
+            <div className="animate-pulse space-y-4">
+              <div className="card">
+                <div className="h-4 bg-sand-200 rounded w-1/2 mb-3"></div>
+                <div className="h-3 bg-sand-200 rounded w-3/4"></div>
               </div>
-            )}
-          </div>
-        )}
+              <div className="card">
+                <div className="h-4 bg-sand-200 rounded w-1/2 mb-3"></div>
+                <div className="h-3 bg-sand-200 rounded w-full"></div>
+              </div>
+            </div>
+          ) : context ? (
+            <>
+              <ContextSidebar context={context} />
+
+              {/* Dev mode regenerate button */}
+              {DEV_MODE && chapter && (
+                <div className="mt-6">
+                  <button
+                    onClick={async () => {
+                      const result = await generateStory(true);
+                      if (result?.success) {
+                        refetchChapter();
+                      }
+                    }}
+                    disabled={generating}
+                    className="btn btn-secondary w-full text-xs"
+                  >
+                    {generating ? 'Regenerating...' : '🔄 Regenerate (Dev)'}
+                  </button>
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
       </div>
     </div>
   );

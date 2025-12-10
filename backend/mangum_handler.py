@@ -47,7 +47,7 @@ async def generate_daily_story():
         chapter = await engine.generate_story_for_date(
             context=context,
             target_date=today,
-            force_regenerate=False,
+            force_regenerate=True,
         )
 
         await session.commit()

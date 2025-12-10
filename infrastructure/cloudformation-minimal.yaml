@@ -237,8 +237,8 @@ Resources:
     Type: AWS::Events::Rule
     Properties:
       Name: !Sub '${AWS::StackName}-daily-story'
-      Description: Generate daily story at 11 AM ET
-      ScheduleExpression: 'cron(0 16 * * ? *)'  # 16:00 UTC = 11 AM ET
+      Description: Generate daily story at 9:05 AM ET
+      ScheduleExpression: 'cron(5 14 * * ? *)'  # 14:05 UTC = 9:05 AM ET
       State: ENABLED
       Targets:
         - Id: GenerateStoryTarget

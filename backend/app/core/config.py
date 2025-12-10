@@ -43,13 +43,26 @@ class Settings(BaseSettings):
     tide_station_id: str = "8443970"  # Boston - closest major station
     tide_api_base_url: str = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
 
+    # EPA AirNow API (for air quality - PM2.5, Ozone)
+    airnow_api_key: Optional[str] = None
+
+    # ERDDAP settings for ocean data (CoastWatch)
+    coastwatch_erddap_url: str = "https://coastwatch.noaa.gov/erddap"
+    erddap_timeout: int = 20
+
+    # Bounding box for Ipswich coastal queries
+    ipswich_bbox_lat_min: float = 42.55
+    ipswich_bbox_lat_max: float = 42.80
+    ipswich_bbox_lon_min: float = -71.0
+    ipswich_bbox_lon_max: float = -70.65
+
     # Feature flags
     enable_story_regen_endpoint: bool = True
     enable_manual_generation: bool = True
 
     # Story generation
-    max_news_items_per_story: int = 3
-    story_generation_hour: int = 11  # 11 AM ET
+    max_news_items_per_story: int = 1
+    story_generation_hour: int = 9  # 9:05 AM ET (see CloudFormation for exact schedule)
 
     # News scraping
     news_source_url: str = "https://thelocalnews.news/category/ipswich/"

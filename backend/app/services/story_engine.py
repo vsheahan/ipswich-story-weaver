@@ -306,12 +306,7 @@ class TemplateStoryGenerator:
 
     def _generate_title(self, context: StoryContext) -> str:
         """Generate a title in keeping with the literary tone."""
-        # Sometimes reference news
-        if context.news_items and random.random() > 0.6:
-            first_news = context.news_items[0]
-            words = first_news.headline.split()[:5]
-            if len(words) >= 3:
-                return " ".join(words).rstrip(".,")
+        # Never use news headlines as titles - always use evocative literary titles
 
         # Ipswich-specific titles
         location_titles = [
